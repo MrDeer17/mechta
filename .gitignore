@@ -1,0 +1,3 @@
+# Ignore local Vosk speech models
+models/vosk-model-*/
+models/vosk-model-*.zip
