@@ -1,17 +1,18 @@
-# Voice Auto Dictation (Vosk)
+# Voice Auto Dictation (Vosk + Sherpa-ONNX)
 
-Утилита для полностью автоматической диктовки с микрофона в выбранное окно.
+Утилита для автодиктовки с микрофона в выбранное окно Windows.
 
-Используется сторонний движок `Vosk`, без `Windows Speech Pack`.
-По умолчанию включен профиль качества `best` (большая модель, точнее на разговорной речи и сленге).
+- Для классических моделей Vosk (`conf/graph`) используется `vosk`.
+- Для `vosk-model-ru-0.54` (Zipformer ONNX) используется `sherpa-onnx`.
 
 ## Что умеет
 
-- Постоянно слушает микрофон.
-- Распознаёт речь локально.
-- Находит целевое окно по части заголовка.
-- По умолчанию печатает текст напрямую (без буфера обмена) и нажимает `Enter`.
-- Работает, даже когда консоль не в фокусе.
+- Слушает микрофон в фоне.
+- Локально распознаёт речь.
+- Отправляет текст в окно по `--target-title`.
+- Поддерживает режим без смены фокуса (`--input-mode post`) для консоли (`pwsh.exe`/`cmd.exe`).
+- Добавляет в конец каждой отправленной фразы `. ` (точка + пробел).
+- Голосовые команды: пауза/продолжение/стоп, отправка Enter, очистка ввода.
 
 ## Установка
 
@@ -21,51 +22,73 @@ python -m pip install -r requirements.txt
 
 ## Быстрый запуск
 
+Классическая модель:
+
 ```powershell
-.\start-voice-auto.cmd --target-title "ChatGPT" --auto-download-model
+.\start-voice-auto.cmd --target-title "ChatGPT" --quality best --auto-download-model
 ```
 
-Где `--target-title` это часть заголовка окна, куда отправлять текст.
-
-Примеры:
+Zipformer `0.54` (уже скачана локально):
 
 ```powershell
-.\start-voice-auto.cmd --target-title "Telegram" --auto-download-model
-.\start-voice-auto.cmd --target-title "Visual Studio Code" --auto-download-model --no-enter
-```
-
-Максимальное качество распознавания:
-
-```powershell
-.\start-voice-auto.cmd --target-title "C:\Program Files\PowerShell\7\pwsh.exe" --quality best --auto-download-model
-```
-
-Быстрый режим (меньше нагрузка, хуже точность):
-
-```powershell
-.\start-voice-auto.cmd --target-title "..." --quality fast --auto-download-model
+.\start-voice-auto.cmd --target-title "pwsh.exe" --model-dir ".\models\vosk-model-ru-0.54" --input-mode post
 ```
 
 ## Голосовые команды
 
-- `пауза диктовка`
-- `продолжай диктовка`
-- `стоп диктовка`
+По умолчанию:
 
-## Полезные параметры
+- Пауза: `pause dictation`, `пауза диктовка`
+- Продолжить: `resume dictation`, `continue dictation`, `продолжай диктовка`
+- Стоп: `stop dictation`, `стоп диктовка`
+- Отправка (Enter): `send`, `submit`, `enter`, `отправка`, `отправить`, `энтер`
+- Очистка ввода: `clear`, `очистить`, `очистка`, `очисти`
 
-- `--wake-word "мехта"`: отправлять только фразы, начинающиеся с wake word.
-- `--no-enter`: вставлять текст без автоматической отправки.
-- `--input-mode type|paste`: способ ввода (`type` по умолчанию, без буфера).
-- `--quality best|fast`: профиль модели (`best` лучше понимает разговорную речь).
-- `--min-chars 4`: фильтрация слишком коротких фраз.
-- `--model-dir <path>`: путь к локальной модели.
-- `--model-url <url>`: откуда скачивать модель.
-- `--corrections-file corrections.ru.example.json`: авто-исправления ослышек/сленга.
+Поведение:
 
-## Сленг и авто-исправления
+- В `post`-режиме Enter не жмётся автоматически при диктовке.
+- Enter жмётся отдельной голосовой командой отправки.
+- `очистить` удаляет надиктованный (не отправленный) текст через Backspace.
 
-Можно подложить JSON-файл словаря замен:
+## Кастомные команды pause/resume/stop
+
+Можно задать свои фразы:
+
+```powershell
+.\start-voice-auto.cmd `
+  --target-title "pwsh.exe" `
+  --model-dir ".\models\vosk-model-ru-0.54" `
+  --input-mode post `
+  --pause-command "пауза" `
+  --resume-command "продолжай" `
+  --stop-command "стоп"
+```
+
+Можно передавать несколько вариантов:
+
+- повторяя аргумент (`--stop-command "стоп" --stop-command "хватит"`)
+- или списком через `,` / `;` / `|` (`--resume-command "го,можно дальше|продолжай"`).
+
+## Аргументы
+
+- `--target-title` (обязательный): часть заголовка окна или имя процесса (`pwsh.exe`).
+- `--model-dir`: путь к локальной модели.
+- `--model-url`: URL модели для автоскачивания.
+- `--quality {best,fast}`: профиль для классических моделей.
+- `--auto-download-model`: скачать модель, если её нет.
+- `--wake-word`: отправлять только фразы с wake word.
+- `--min-chars`: минимум символов в распознанной фразе.
+- `--no-enter`: не жать Enter после отправки текста (`type/paste` режимы).
+- `--input-mode {type,paste,post}`:
+  - `type`: ввод через `SendInput` (по умолчанию).
+  - `paste`: через буфер обмена + `Ctrl+V`.
+  - `post`: без смены фокуса через `PostMessage` (лучше для консоли).
+- `--corrections-file`: JSON словарь замен.
+- `--stop-command`, `--pause-command`, `--resume-command`: кастомные голосовые команды.
+
+## Corrections JSON
+
+Пример `corrections.ru.example.json`:
 
 ```json
 {
@@ -75,15 +98,9 @@ python -m pip install -r requirements.txt
 }
 ```
 
-Запуск:
-
-```powershell
-.\start-voice-auto.cmd --target-title "..." --quality best --corrections-file .\corrections.ru.example.json
-```
-
 ## Важно
 
 - Windows может запросить доступ к микрофону для Python.
-- Если целевое окно закрыто или заголовок не совпадает, отправка не сработает.
-- Утилита может переключать фокус на целевое окно перед вставкой текста.
-- `best` скачивает большую модель (~1.9 GB), первый запуск может занять время.
+- Если цель не найдена по `--target-title`, отправка не выполняется.
+- Для `post` лучше указывать `--target-title "pwsh.exe"` или `"cmd.exe"`.
+- Модели Vosk добавлены в `.gitignore`, чтобы не коммитить большие файлы.

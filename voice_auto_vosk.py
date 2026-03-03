@@ -48,6 +48,13 @@ DEFAULT_MIN_UTTERANCE_SEC = 0.35
 DEFAULT_MAX_UTTERANCE_SEC = 20.0
 DEFAULT_FOCUS_COOLDOWN_SEC = 0.8
 DEFAULT_DUPLICATE_SUPPRESS_SEC = 1.5
+DEFAULT_STOP_COMMANDS = ("stop dictation", "стоп диктовка")
+DEFAULT_PAUSE_COMMANDS = ("pause dictation", "пауза диктовка")
+DEFAULT_RESUME_COMMANDS = (
+    "resume dictation",
+    "continue dictation",
+    "продолжай диктовка",
+)
 
 # Keyboard constants
 INPUT_KEYBOARD = 1
@@ -626,6 +633,21 @@ def apply_corrections(text: str, phrase_map: dict[str, str], word_map: dict[str,
     return " ".join(out_words)
 
 
+def parse_command_phrases(values: Optional[list[str]], defaults: tuple[str, ...]) -> set[str]:
+    if not values:
+        return {normalize_text(item) for item in defaults}
+
+    out: set[str] = set()
+    for raw in values:
+        for part in re.split(r"[|,;]", raw):
+            normalized = normalize_text(part)
+            if normalized:
+                out.add(normalized)
+    if out:
+        return out
+    return {normalize_text(item) for item in defaults}
+
+
 class DictationAgent:
     def __init__(
         self,
@@ -636,6 +658,9 @@ class DictationAgent:
         input_mode: str,
         wake_word: str,
         min_chars: int,
+        stop_commands: set[str],
+        pause_commands: set[str],
+        resume_commands: set[str],
         phrase_corrections: dict[str, str],
         word_corrections: dict[str, str],
     ) -> None:
@@ -647,6 +672,9 @@ class DictationAgent:
         self.target_resolver = TargetWindowResolver(target_title)
         self.wake_word_norm = normalize_text(wake_word) if wake_word else ""
         self.min_chars = min_chars
+        self.stop_commands = stop_commands
+        self.pause_commands = pause_commands
+        self.resume_commands = resume_commands
         self.phrase_corrections = phrase_corrections
         self.word_corrections = word_corrections
         self.paused = False
@@ -748,19 +776,15 @@ class DictationAgent:
         if not normalized:
             return
 
-        if normalized == "stop dictation" or normalized == "стоп диктовка":
+        if normalized in self.stop_commands:
             print("[voice] stop")
             self.running = False
             return
-        if normalized == "pause dictation" or normalized == "пауза диктовка":
+        if normalized in self.pause_commands:
             print("[voice] paused")
             self.paused = True
             return
-        if (
-            normalized == "resume dictation"
-            or normalized == "continue dictation"
-            or normalized == "продолжай диктовка"
-        ):
+        if normalized in self.resume_commands:
             print("[voice] resumed")
             self.paused = False
             return
@@ -952,6 +976,33 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to JSON corrections file: {\"wrong\":\"right\"} for slang/oslyshki.",
     )
+    parser.add_argument(
+        "--stop-command",
+        action="append",
+        default=None,
+        help=(
+            "Custom voice phrase for stop command. Can be repeated or passed as a "
+            "list separated by comma/semicolon/pipe."
+        ),
+    )
+    parser.add_argument(
+        "--pause-command",
+        action="append",
+        default=None,
+        help=(
+            "Custom voice phrase for pause command. Can be repeated or passed as a "
+            "list separated by comma/semicolon/pipe."
+        ),
+    )
+    parser.add_argument(
+        "--resume-command",
+        action="append",
+        default=None,
+        help=(
+            "Custom voice phrase for resume command. Can be repeated or passed as a "
+            "list separated by comma/semicolon/pipe."
+        ),
+    )
     return parser
 
 
@@ -978,6 +1029,9 @@ def main() -> int:
         recognizer = build_sherpa_offline_recognizer(model_dir)
 
     phrase_corrections, word_corrections = load_corrections(args.corrections_file)
+    stop_commands = parse_command_phrases(args.stop_command, DEFAULT_STOP_COMMANDS)
+    pause_commands = parse_command_phrases(args.pause_command, DEFAULT_PAUSE_COMMANDS)
+    resume_commands = parse_command_phrases(args.resume_command, DEFAULT_RESUME_COMMANDS)
 
     agent = DictationAgent(
         recognizer=recognizer,
@@ -987,6 +1041,9 @@ def main() -> int:
         input_mode=args.input_mode,
         wake_word=args.wake_word,
         min_chars=args.min_chars,
+        stop_commands=stop_commands,
+        pause_commands=pause_commands,
+        resume_commands=resume_commands,
         phrase_corrections=phrase_corrections,
         word_corrections=word_corrections,
     )
@@ -994,7 +1051,12 @@ def main() -> int:
     print(f"[init] Target title contains: '{args.target_title}'")
     print(f"[init] Quality profile: {args.quality}")
     print(f"[init] Input mode: {args.input_mode}")
-    print("[init] Voice commands are enabled (ru/en pause/resume/stop)")
+    print(
+        "[init] Voice commands:"
+        f" stop={sorted(stop_commands)}"
+        f" pause={sorted(pause_commands)}"
+        f" resume={sorted(resume_commands)}"
+    )
     if args.wake_word:
         print(f"[init] Wake word: '{args.wake_word}'")
 
